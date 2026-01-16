@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tonnetz Music Grid Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+        }
+        
+        #info h2 {
+            margin-bottom: 10px;
+            color: #4ecdc4;
+        }
+        
+        #chord-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 24px;
+            z-index: 100;
+            text-align: center;
+        }
+        
+        #chord-display .chord-name {
+            font-size: 36px;
+            font-weight: bold;
+            color: #ff6b6b;
+        }
+        
+        #chord-display .notes {
+            font-size: 16px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+        
+        #start-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            color: white;
+        }
+        
+        #start-overlay h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #4ecdc4;
+        }
+        
+        #start-overlay p {
+            font-size: 18px;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.6;
+        }
+        
+        #start-btn {
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #4ecdc4;
+            color: #000;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+        }
+        
+        #start-btn:hover {
+            transform: scale(1.1);
+            background: #3dbdb5;
+        }
+    </style>
+</head>
+<body>
+    <div id="start-overlay">
+        <h1>🎵 Tonnetz Music Grid</h1>
+        <p>
+            Move your sphere across the neo-Riemannian Tonnetz<br>
+            and explore musical harmonies in 3D!<br><br>
+            Use <strong>W, A, S, D</strong> keys to move
+        </p>
+        <button id="start-btn">Click to Start</button>
+    </div>
+    
+    <div id="info">
+        <h2>Controls</h2>
+        <p>W - Move Forward</p>
+        <p>S - Move Backward</p>
+        <p>A - Move Left</p>
+        <p>D - Move Right</p>
+    </div>
+    
+    <div id="chord-display">
+        <div class="chord-name">--</div>
+        <div class="notes">Move to play chords</div>
+    </div>
+    
+    <div id="game-container"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
