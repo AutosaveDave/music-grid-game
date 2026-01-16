@@ -11,6 +11,8 @@ class AudioSystem {
         this.masterGain = null;
         this.activeOscillators = [];
         this.initialized = false;
+        this.volume = 0.3;
+        this.isMuted = false;
     }
 
     init() {
@@ -28,8 +30,8 @@ class AudioSystem {
         return 440 * Math.pow(2, (midiNote - 69) / 12);
     }
 
-    // Play a chord (array of MIDI note numbers)
-    playChord(midiNotes, duration = 0.8) {
+    // Play a sustained chord (holds until stopChord is called)
+    playChord(midiNotes) {
         if (!this.initialized) return;
 
         // Stop any currently playing notes
@@ -41,25 +43,41 @@ class AudioSystem {
             const oscillator = this.audioContext.createOscillator();
             const gainNode = this.audioContext.createGain();
 
-            // Use slightly detuned sawtooth for richer sound
+            // Use triangle wave for smooth sound
             oscillator.type = 'triangle';
             oscillator.frequency.value = this.midiToFrequency(note);
 
-            // ADSR envelope
+            // Attack and sustain (no automatic release)
             gainNode.gain.setValueAtTime(0, now);
             gainNode.gain.linearRampToValueAtTime(0.4, now + 0.05); // Attack
-            gainNode.gain.linearRampToValueAtTime(0.25, now + 0.15); // Decay
-            gainNode.gain.setValueAtTime(0.25, now + duration - 0.2); // Sustain
-            gainNode.gain.linearRampToValueAtTime(0, now + duration); // Release
+            gainNode.gain.linearRampToValueAtTime(0.25, now + 0.15); // Decay to sustain level
 
             oscillator.connect(gainNode);
             gainNode.connect(this.masterGain);
 
             oscillator.start(now);
-            oscillator.stop(now + duration);
+            // Don't schedule a stop - chord plays until manually stopped
 
             this.activeOscillators.push({ oscillator, gainNode });
         });
+    }
+
+    // Stop current chord with a smooth release
+    stopChord() {
+        if (!this.initialized || this.activeOscillators.length === 0) return;
+
+        const now = this.audioContext.currentTime;
+        const releaseTime = 0.3; // Smooth release
+
+        this.activeOscillators.forEach(({ oscillator, gainNode }) => {
+            try {
+                gainNode.gain.cancelScheduledValues(now);
+                gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
+                oscillator.stop(now + releaseTime + 0.1);
+            } catch (e) {}
+        });
+        this.activeOscillators = [];
     }
 
     stopAll() {
@@ -70,6 +88,26 @@ class AudioSystem {
             } catch (e) {}
         });
         this.activeOscillators = [];
+    }
+
+    setVolume(value) {
+        // value is 0-100
+        this.volume = value / 100;
+        if (this.masterGain && !this.isMuted) {
+            this.masterGain.gain.value = this.volume;
+        }
+    }
+
+    setMuted(muted) {
+        this.isMuted = muted;
+        if (this.masterGain) {
+            this.masterGain.gain.value = muted ? 0 : this.volume;
+        }
+    }
+
+    toggleMute() {
+        this.setMuted(!this.isMuted);
+        return this.isMuted;
     }
 }
 
@@ -324,10 +362,21 @@ class TonnetzGame {
         this.currentTriangle = null;
         this.triangleMeshes = [];
         
+        // Touch controls
+        this.isMobile = this.detectMobile();
+        this.touchActive = false;
+        this.touchTarget = { x: 0, z: 0 };
+        
         // Setup
         this.init();
         this.setupEventListeners();
         this.animate();
+    }
+
+    detectMobile() {
+        // Detect if the device is mobile/touch-enabled
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+               (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
     }
 
     init() {
@@ -353,6 +402,9 @@ class TonnetzGame {
         const cameraDistance = 25;
         this.camera.position.set(0, cameraHeight, cameraDistance);
         this.camera.lookAt(0, 0, 0);
+        
+        // Store initial camera rotation (will never change)
+        this.initialCameraRotation = this.camera.rotation.clone();
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -608,22 +660,100 @@ class TonnetzGame {
             this.renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+        // Touch events for mobile
+        this.renderer.domElement.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.handleTouch(e.touches[0]);
+        });
+
+        this.renderer.domElement.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            this.handleTouch(e.touches[0]);
+        });
+
+        this.renderer.domElement.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            this.touchActive = false;
+        });
+
         // Start button
         const startBtn = document.getElementById('start-btn');
         const overlay = document.getElementById('start-overlay');
+        
+        // Show appropriate controls based on device
+        const desktopControls = document.getElementById('desktop-controls');
+        const mobileControls = document.getElementById('mobile-controls');
+        if (this.isMobile && mobileControls && desktopControls) {
+            desktopControls.style.display = 'none';
+            mobileControls.style.display = 'inline';
+        }
         
         startBtn.addEventListener('click', () => {
             this.audioSystem.init();
             overlay.style.display = 'none';
         });
+        
+        // Volume controls
+        const volumeSlider = document.getElementById('volume-slider');
+        const muteBtn = document.getElementById('mute-btn');
+        
+        volumeSlider.addEventListener('input', (e) => {
+            this.audioSystem.setVolume(parseInt(e.target.value));
+            // Update mute button icon if unmuting via slider
+            if (parseInt(e.target.value) > 0 && this.audioSystem.isMuted) {
+                this.audioSystem.setMuted(false);
+                muteBtn.textContent = '🔊';
+            }
+        });
+        
+        muteBtn.addEventListener('click', () => {
+            const isMuted = this.audioSystem.toggleMute();
+            muteBtn.textContent = isMuted ? '🔇' : '🔊';
+        });
+    }
+
+    handleTouch(touch) {
+        // Convert touch position to 3D world coordinates
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Create a raycaster to find the touch position in world space
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera({ x, y }, this.camera);
+
+        // Create a plane at y=0 to intersect with
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const intersectPoint = new THREE.Vector3();
+        
+        if (raycaster.ray.intersectPlane(plane, intersectPoint)) {
+            this.touchActive = true;
+            this.touchTarget.x = intersectPoint.x;
+            this.touchTarget.z = intersectPoint.z;
+        }
     }
 
     updatePlayer() {
-        // Apply movement based on key presses
-        if (this.keys.w) this.velocity.z -= this.playerSpeed;
-        if (this.keys.s) this.velocity.z += this.playerSpeed;
-        if (this.keys.a) this.velocity.x -= this.playerSpeed;
-        if (this.keys.d) this.velocity.x += this.playerSpeed;
+        // Touch controls (mobile)
+        if (this.touchActive) {
+            // Calculate direction from player to touch target
+            const dx = this.touchTarget.x - this.player.position.x;
+            const dz = this.touchTarget.z - this.player.position.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            // Only move if touch is far enough from player
+            if (distance > 0.5) {
+                // Normalize and apply speed
+                this.velocity.x += (dx / distance) * this.playerSpeed * 1.5;
+                this.velocity.z += (dz / distance) * this.playerSpeed * 1.5;
+            }
+        } else {
+            // Keyboard controls (desktop)
+            if (this.keys.w) this.velocity.z -= this.playerSpeed;
+            if (this.keys.s) this.velocity.z += this.playerSpeed;
+            if (this.keys.a) this.velocity.x -= this.playerSpeed;
+            if (this.keys.d) this.velocity.x += this.playerSpeed;
+        }
 
         // Apply friction
         this.velocity.x *= this.friction;
@@ -653,22 +783,35 @@ class TonnetzGame {
             this.player.position.z
         );
 
-        if (triangle && triangle !== this.currentTriangle) {
+        if (triangle !== this.currentTriangle) {
+            // Stop the previous chord when leaving a triangle
+            if (this.currentTriangle) {
+                this.audioSystem.stopChord();
+            }
+            
             this.currentTriangle = triangle;
             
-            // Highlight current triangle
-            this.highlightTriangle(triangle);
-            
-            // Play chord
-            this.audioSystem.playChord(triangle.chord);
-            
-            // Update display
-            this.chordDisplay.textContent = triangle.chordName;
-            this.chordDisplay.style.color = triangle.type === 'major' ? '#4ecdc4' : '#a855f7';
-            
-            // Show vertex notes (which are the chord notes)
-            const noteNames = triangle.vertices.map(v => v.noteName).join(' - ');
-            this.notesDisplay.textContent = noteNames;
+            if (triangle) {
+                // Highlight current triangle
+                this.highlightTriangle(triangle);
+                
+                // Play chord (sustained until we leave)
+                this.audioSystem.playChord(triangle.chord);
+                
+                // Update display
+                this.chordDisplay.textContent = triangle.chordName;
+                this.chordDisplay.style.color = triangle.type === 'major' ? '#4ecdc4' : '#a855f7';
+                
+                // Show vertex notes (which are the chord notes)
+                const noteNames = triangle.vertices.map(v => v.noteName).join(' - ');
+                this.notesDisplay.textContent = noteNames;
+            } else {
+                // Not on any triangle - clear highlight and display
+                this.highlightTriangle(null);
+                this.chordDisplay.textContent = '--';
+                this.chordDisplay.style.color = '#ff6b6b';
+                this.notesDisplay.textContent = 'Move to play chords';
+            }
         }
     }
 
@@ -692,20 +835,27 @@ class TonnetzGame {
     }
 
     updateCamera() {
-        // Smooth camera follow with isometric offset
-        const cameraOffsetZ = 25; // Match initial camera distance
-        const targetX = this.player.position.x;
-        const targetZ = this.player.position.z + cameraOffsetZ;
+        // Camera offset needed due to isometric viewing angle
+        const cameraOffsetZ = 25;
         
-        this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
-        this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
+        if (this.isMobile) {
+            // Mobile: Camera centered on the ball (faster follow)
+            const targetX = this.player.position.x;
+            const targetZ = this.player.position.z + cameraOffsetZ;
+            
+            this.camera.position.x += (targetX - this.camera.position.x) * 0.1;
+            this.camera.position.z += (targetZ - this.camera.position.z) * 0.1;
+        } else {
+            // Desktop: Smooth camera follow
+            const targetX = this.player.position.x;
+            const targetZ = this.player.position.z + cameraOffsetZ;
+            
+            this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
+            this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
+        }
         
-        // Look at player position
-        this.camera.lookAt(
-            this.player.position.x,
-            0,
-            this.player.position.z
-        );
+        // Keep camera rotation fixed (never rotate)
+        this.camera.rotation.copy(this.initialCameraRotation);
     }
 
     animate() {

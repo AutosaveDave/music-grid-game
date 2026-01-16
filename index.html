@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <title>Tonnetz Music Grid Game</title>
     <style>
         * {
@@ -15,6 +16,9 @@
             overflow: hidden;
             background: #000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Disable default touch behaviors */
+            -webkit-user-select: none; /* Prevent text selection */
+            user-select: none;
         }
         
         #game-container {
@@ -37,6 +41,13 @@
         #info h2 {
             margin-bottom: 10px;
             color: #4ecdc4;
+        }
+        
+        /* Hide controls info on mobile */
+        @media (max-width: 768px) {
+            #info {
+                display: none;
+            }
         }
         
         #chord-display {
@@ -90,6 +101,18 @@
             margin-bottom: 30px;
             text-align: center;
             line-height: 1.6;
+            max-width: 90%;
+        }
+        
+        @media (max-width: 768px) {
+            #start-overlay h1 {
+                font-size: 32px;
+            }
+            
+            #start-overlay p {
+                font-size: 16px;
+                padding: 0 20px;
+            }
         }
         
         #start-btn {
@@ -107,6 +130,77 @@
             transform: scale(1.1);
             background: #3dbdb5;
         }
+        
+        #volume-control {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 12px 16px;
+            border-radius: 10px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        #mute-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 5px;
+            transition: background 0.2s;
+        }
+        
+        #mute-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        #volume-slider {
+            width: 100px;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #444;
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+        
+        #volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        #volume-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        
+        @media (max-width: 768px) {
+            #volume-control {
+                bottom: 10px;
+                left: 10px;
+                padding: 10px 12px;
+            }
+            
+            #volume-slider {
+                width: 80px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -115,7 +209,8 @@
         <p>
             Move your sphere across the neo-Riemannian Tonnetz<br>
             and explore musical harmonies in 3D!<br><br>
-            Use <strong>W, A, S, D</strong> keys to move
+            <span id="desktop-controls">Use <strong>W, A, S, D</strong> keys to move</span>
+            <span id="mobile-controls" style="display:none;">Tap anywhere to move the ball in that direction</span>
         </p>
         <button id="start-btn">Click to Start</button>
     </div>
@@ -131,6 +226,11 @@
     <div id="chord-display">
         <div class="chord-name">--</div>
         <div class="notes">Move to play chords</div>
+    </div>
+    
+    <div id="volume-control">
+        <button id="mute-btn" title="Mute/Unmute">🔊</button>
+        <input type="range" id="volume-slider" min="0" max="100" value="30" title="Volume">
     </div>
     
     <div id="game-container"></div>
