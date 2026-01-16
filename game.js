@@ -79,8 +79,13 @@ class AudioSystem {
 
 class TonnetzSystem {
     constructor() {
-        // Note names for display
-        this.noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        // Note names in circle of fifths order
+        // We use a simple approach: map pitch class to preferred enharmonic name
+        // This ensures consistency and avoids double accidentals
+        this.pitchClassToName = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+        
+        // Pitch class lookup (for audio only) - kept for compatibility  
+        this.noteNames = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
         
         // Grid dimensions
         this.gridWidth = 12;
@@ -101,24 +106,35 @@ class TonnetzSystem {
         this.triangles = this.generateTriangles();
     }
 
+    // Get note name from pitch class using preferred enharmonic spelling
+    getNoteName(pitchClass) {
+        const name = this.pitchClassToName[pitchClass];
+        if (name === undefined) {
+            console.error('Undefined note name for pitchClass:', pitchClass);
+            return '?';
+        }
+        return name;
+    }
+
     generateGrid() {
-        // Create a 2D grid of pitch classes for the Tonnetz
-        // In the Tonnetz:
-        // - Each column step right = perfect fifth (+7 semitones)
-        // - Each row step up = major third (+4 semitones)
-        // This ensures upward triangles = major triads, downward = minor triads
+        // Create a 2D grid storing pitch class and note name
         const grid = [];
         
         for (let row = 0; row < this.gridHeight + 1; row++) {
             grid[row] = [];
             for (let col = 0; col < this.gridWidth + 1; col++) {
-                // Start from C (pitch class 0)
-                // Each row up adds a major third (+4)
-                // Each column right adds a perfect fifth (+7)
-                const pitchClass = (row * this.majorThirdInterval + col * this.fifthInterval) % 12;
-                grid[row][col] = pitchClass;
+                // Pitch class: each row +4 semitones (major third), each col +7 semitones (fifth)
+                const pitchClass = ((row * this.majorThirdInterval + col * this.fifthInterval) % 12 + 12) % 12;
+                const noteName = this.getNoteName(pitchClass);
+                grid[row][col] = {
+                    pitchClass: pitchClass,
+                    noteName: noteName
+                };
             }
         }
+        
+        // Debug: log first few grid entries
+        console.log('Grid sample:', grid[0][0], grid[0][1], grid[1][0]);
         
         return grid;
     }
@@ -130,6 +146,16 @@ class TonnetzSystem {
         const triWidth = this.triangleSize;
         const triHeight = this.triangleSize * Math.sqrt(3) / 2;
         
+        // Helper function to get visual position for a grid vertex
+        // Each vertex at (row, col) should have a consistent visual position
+        // Use cumulative offset (each row shifts right by half width) for parallelogram/Tonnetz layout
+        const getVertexPosition = (row, col) => {
+            return {
+                x: col * triWidth + row * (triWidth / 2),
+                z: row * triHeight
+            };
+        };
+        
         // In a triangular grid:
         // - Vertices are at grid positions (row, col)
         // - Upward triangle at (row, col) uses vertices: (row, col), (row, col+1), (row+1, col)
@@ -137,69 +163,67 @@ class TonnetzSystem {
         
         for (let row = 0; row < this.gridHeight; row++) {
             for (let col = 0; col < this.gridWidth; col++) {
-                // Visual positions - odd rows offset by half width
-                const xOffset = (row % 2) * (triWidth / 2);
+                // Get visual positions using consistent calculation for each grid position
+                const v0 = getVertexPosition(row, col);         // (row, col)
+                const v1 = getVertexPosition(row, col + 1);     // (row, col+1)
+                const v2 = getVertexPosition(row + 1, col);     // (row+1, col)
+                const v3 = getVertexPosition(row + 1, col + 1); // (row+1, col+1)
                 
-                // Vertex positions in world space
-                const v0 = { x: col * triWidth + xOffset, z: row * triHeight };                    // (row, col)
-                const v1 = { x: (col + 1) * triWidth + xOffset, z: row * triHeight };              // (row, col+1)
-                const v2 = { x: col * triWidth + triWidth/2 + xOffset, z: (row + 1) * triHeight }; // (row+1, col) - offset for next row
-                const v3 = { x: (col + 1) * triWidth + triWidth/2 + xOffset, z: (row + 1) * triHeight }; // (row+1, col+1)
+                // Get grid cell data (now contains pitchClass, noteName)
+                const cell0 = this.grid[row][col];         // (row, col)
+                const cell1 = this.grid[row][col + 1];     // (row, col+1)
+                const cell2 = this.grid[row + 1][col];     // (row+1, col)
+                const cell3 = this.grid[row + 1][col + 1]; // (row+1, col+1)
                 
-                // Get pitch classes from grid
-                const pc0 = this.grid[row][col];         // bottom-left
-                const pc1 = this.grid[row][col + 1];     // bottom-right  
-                const pc2 = this.grid[row + 1][col];     // top-left
-                const pc3 = this.grid[row + 1][col + 1]; // top-right
-                
-                // Upward triangle: v0, v1, v2 (bottom-left, bottom-right, top)
+                // Upward triangle: v0, v1, v2 
                 // Uses grid positions: (row,col), (row,col+1), (row+1,col) 
-                // Notes: pc0, pc1, pc2
-                // With our grid: pc0=root, pc1=root+7 (fifth), pc2=root+4 (major third)
+                // With our grid: cell0=root, cell1=root+7 (fifth), cell2=root+4 (major third)
                 // This forms a major triad: root, third, fifth
-                // Build chord directly from vertex pitch classes to ensure they match
-                const majorChord = [60 + pc0, 60 + pc2, 60 + pc1]; // root, third (pc2), fifth (pc1)
+                const majorChord = [60 + cell0.pitchClass, 60 + cell2.pitchClass, 60 + cell1.pitchClass];
                 triangles.push({
                     type: 'major',
                     vertices: [
-                        { x: v0.x, z: v0.z, pitchClass: pc0 },
-                        { x: v1.x, z: v1.z, pitchClass: pc1 },
-                        { x: v2.x, z: v2.z, pitchClass: pc2 }
+                        { x: v0.x, z: v0.z, pitchClass: cell0.pitchClass, noteName: cell0.noteName },
+                        { x: v1.x, z: v1.z, pitchClass: cell1.pitchClass, noteName: cell1.noteName },
+                        { x: v2.x, z: v2.z, pitchClass: cell2.pitchClass, noteName: cell2.noteName }
                     ],
                     center: { 
                         x: (v0.x + v1.x + v2.x) / 3, 
                         z: (v0.z + v1.z + v2.z) / 3 
                     },
                     chord: majorChord,
-                    chordName: this.noteNames[pc0],
+                    chordName: cell0.noteName,
                     row: row,
                     col: col
                 });
                 
                 // Downward triangle: v2, v1, v3 (top-left, bottom-right, top-right)
                 // Uses grid positions: (row+1,col), (row,col+1), (row+1,col+1)
-                // Notes: pc2, pc1, pc3
-                // With our grid: pc2=root+4, pc1=root+7, pc3=root+11
-                // Relative to pc2 as root: pc1=pc2+3, pc3=pc2+7 -> minor triad rooted on pc2
-                // Build chord directly from vertex pitch classes
-                const minorChord = [60 + pc2, 60 + pc1, 60 + pc3]; // root (pc2), third (pc1), fifth (pc3)
+                // Relative to cell2 as root: cell1=minor third, cell3=fifth -> minor triad
+                const minorChord = [60 + cell2.pitchClass, 60 + cell1.pitchClass, 60 + cell3.pitchClass];
                 triangles.push({
                     type: 'minor',
                     vertices: [
-                        { x: v2.x, z: v2.z, pitchClass: pc2 },
-                        { x: v1.x, z: v1.z, pitchClass: pc1 },
-                        { x: v3.x, z: v3.z, pitchClass: pc3 }
+                        { x: v2.x, z: v2.z, pitchClass: cell2.pitchClass, noteName: cell2.noteName },
+                        { x: v1.x, z: v1.z, pitchClass: cell1.pitchClass, noteName: cell1.noteName },
+                        { x: v3.x, z: v3.z, pitchClass: cell3.pitchClass, noteName: cell3.noteName }
                     ],
                     center: { 
                         x: (v2.x + v1.x + v3.x) / 3, 
                         z: (v2.z + v1.z + v3.z) / 3 
                     },
                     chord: minorChord,
-                    chordName: this.noteNames[pc2] + 'm',
+                    chordName: cell2.noteName + 'm',
                     row: row,
                     col: col
                 });
             }
+        }
+        
+        // Debug: log first triangle
+        if (triangles.length > 0) {
+            console.log('First triangle:', triangles[0]);
+            console.log('First triangle vertices:', triangles[0].vertices);
         }
         
         return triangles;
@@ -310,16 +334,24 @@ class TonnetzGame {
         // Create scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1a1a2e);
-        this.scene.fog = new THREE.Fog(0x1a1a2e, 20, 60);
+        // No fog for orthographic (it doesn't work well with ortho)
 
-        // Create camera
-        this.camera = new THREE.PerspectiveCamera(
-            60,
-            window.innerWidth / window.innerHeight,
+        // Create orthographic camera with isometric-style angle
+        const frustumSize = 35;
+        const aspect = window.innerWidth / window.innerHeight;
+        this.frustumSize = frustumSize;
+        this.camera = new THREE.OrthographicCamera(
+            frustumSize * aspect / -2,
+            frustumSize * aspect / 2,
+            frustumSize / 2,
+            frustumSize / -2,
             0.1,
             1000
         );
-        this.camera.position.set(0, 15, 10);
+        // Position camera for isometric-style view (angled from above)
+        const cameraHeight = 40;
+        const cameraDistance = 25;
+        this.camera.position.set(0, cameraHeight, cameraDistance);
         this.camera.lookAt(0, 0, 0);
 
         // Create renderer
@@ -396,7 +428,8 @@ class TonnetzGame {
             triangle.vertices = triangle.vertices.map(v => ({
                 x: v.x + offsetX,
                 z: v.z + offsetZ,
-                pitchClass: v.pitchClass
+                pitchClass: v.pitchClass,
+                noteName: v.noteName
             }));
 
             // Create triangle geometry using the offset vertices
@@ -458,10 +491,9 @@ class TonnetzGame {
     }
 
     addNoteLabels() {
-        const noteNames = this.tonnetz.noteNames;
-        
+        console.log('addNoteLabels called');
         // Collect unique vertices from all triangles (already have offset applied)
-        // Each vertex now has its pitchClass stored directly
+        // Each vertex now has its noteName stored directly
         const vertexMap = new Map();
         
         this.tonnetz.triangles.forEach((triangle) => {
@@ -469,40 +501,62 @@ class TonnetzGame {
                 // Round to avoid floating point issues
                 const key = `${v.x.toFixed(2)},${v.z.toFixed(2)}`;
                 if (!vertexMap.has(key)) {
-                    vertexMap.set(key, { x: v.x, z: v.z, pitchClass: v.pitchClass });
+                    vertexMap.set(key, { x: v.x, z: v.z, noteName: v.noteName });
                 }
             });
         });
         
+        console.log('Vertex map size:', vertexMap.size);
+        // Log first few entries
+        let count = 0;
+        vertexMap.forEach(({ x, z, noteName }) => {
+            if (count < 3) {
+                console.log('Vertex:', x, z, 'noteName:', noteName);
+            }
+            count++;
+        });
+        
         // Create sprites at each unique vertex
-        vertexMap.forEach(({ x, z, pitchClass }) => {
-            const noteName = noteNames[pitchClass];
+        vertexMap.forEach(({ x, z, noteName }) => {
             const sprite = this.createTextSprite(noteName);
-            sprite.position.set(x, 0.5, z);
-            sprite.scale.set(0.8, 0.4, 1);
+            sprite.position.set(x, 1.5, z);
+            sprite.scale.set(1.5, 0.75, 1);
             this.scene.add(sprite);
         });
     }
 
     createTextSprite(text) {
         const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 32;
+        canvas.width = 128;
+        canvas.height = 64;
         const context = canvas.getContext('2d');
         
-        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        // Draw rounded background
+        context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        const radius = 10;
+        context.beginPath();
+        context.roundRect(4, 4, canvas.width - 8, canvas.height - 8, radius);
+        context.fill();
         
-        context.font = 'bold 20px Arial';
-        context.fillStyle = '#ffffff';
+        // Draw text with shadow for better readability
+        context.font = 'bold 36px Arial';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
+        
+        // Text shadow
+        context.fillStyle = '#000000';
+        context.fillText(text, canvas.width / 2 + 2, canvas.height / 2 + 2);
+        
+        // Main text
+        context.fillStyle = '#ffffff';
         context.fillText(text, canvas.width / 2, canvas.height / 2);
         
         const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
         const material = new THREE.SpriteMaterial({ 
             map: texture,
-            transparent: true
+            transparent: true,
+            depthTest: false
         });
         
         return new THREE.Sprite(material);
@@ -545,7 +599,11 @@ class TonnetzGame {
 
         // Window resize
         window.addEventListener('resize', () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
+            const aspect = window.innerWidth / window.innerHeight;
+            this.camera.left = this.frustumSize * aspect / -2;
+            this.camera.right = this.frustumSize * aspect / 2;
+            this.camera.top = this.frustumSize / 2;
+            this.camera.bottom = this.frustumSize / -2;
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(window.innerWidth, window.innerHeight);
         });
@@ -609,9 +667,7 @@ class TonnetzGame {
             this.chordDisplay.style.color = triangle.type === 'major' ? '#4ecdc4' : '#a855f7';
             
             // Show vertex notes (which are the chord notes)
-            const noteNames = triangle.vertices.map(v => 
-                this.tonnetz.noteNames[v.pitchClass]
-            ).join(' - ');
+            const noteNames = triangle.vertices.map(v => v.noteName).join(' - ');
             this.notesDisplay.textContent = noteNames;
         }
     }
@@ -636,14 +692,15 @@ class TonnetzGame {
     }
 
     updateCamera() {
-        // Smooth camera follow
+        // Smooth camera follow with isometric offset
+        const cameraOffsetZ = 25; // Match initial camera distance
         const targetX = this.player.position.x;
-        const targetZ = this.player.position.z + 10;
+        const targetZ = this.player.position.z + cameraOffsetZ;
         
         this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
         this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
         
-        // Look at player
+        // Look at player position
         this.camera.lookAt(
             this.player.position.x,
             0,
